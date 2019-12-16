@@ -311,17 +311,59 @@ function _psse2pm_shunt!(pm_data::Dict, pti_data::Dict, import_all::Bool)
         for shunt in pti_data["SWITCHED SHUNT"]
             sub_data = Dict{String,Any}()
 
-            sub_data["shunt_bus"] = pop!(shunt, "I")
-            sub_data["gs"] = 0.0
-            sub_data["bs"] = pop!(shunt, "BINIT")
-            sub_data["status"] = pop!(shunt, "STAT")
-
-            sub_data["source_id"] = ["switched shunt", sub_data["shunt_bus"], pop!(shunt, "SWREM")]
-            sub_data["index"] = length(pm_data["shunt"]) + 1
 
             _import_remaining!(sub_data, shunt, import_all)
+            println("Switched Shunt:")
+            println(sub_data)
+	        println(shunt)
+            swshunt_relaxation = true
+            if swshunt_relaxation
+                bmax = 0.0
+                bmin = 0.0
+                for (key, val) in shunt
+                    if startswith(key, "B") & (tryparse(Int64, key[2:end])!=nothing)
+                        bmax += max(val, 0.0)
+                        bmin += min(val, 0.0)
+                    end
+                end
+                println("shunt range: [$bmin, $bmax]")
+                sub_data = Dict{String,Any}()
 
-            push!(pm_data["shunt"], sub_data)
+                sub_data["gen_bus"] = pop!(shunt, "I")
+                sub_data["gen_status"] = pop!(shunt, "STAT")
+                sub_data["pg"] = 0.0
+                sub_data["qg"] = pop!(shunt, "BINIT") # Multiply by initial voltage sqared
+                sub_data["vg"] = 1.0 # Change to initial bus voltage
+                sub_data["mbase"] = max(abs(bmax), abs(bmin))
+                sub_data["pmin"] = 0.0
+                sub_data["pmax"] = 0.0
+                sub_data["qmin"] = bmin # Consider revising these limits with the voltage regulation limits
+                sub_data["qmax"] = bmax
+
+                # Default Cost functions
+                sub_data["model"] = 2
+                sub_data["startup"] = 0.0
+                sub_data["shutdown"] = 0.0
+                sub_data["ncost"] = 2
+                sub_data["cost"] = [1.0, 0.0]
+
+                sub_data["source_id"] = ["switched shunt", sub_data["gen_bus"], pop!(shunt, "SWREM")]
+                sub_data["index"] = length(pm_data["gen"]) + 1
+
+                push!(pm_data["gen"], sub_data)
+
+            else
+                sub_data["shunt_bus"] = pop!(shunt, "I")
+                sub_data["gs"] = 0.0
+                sub_data["bs"] = pop!(shunt, "BINIT")
+                sub_data["status"] = pop!(shunt, "STAT")
+
+                sub_data["source_id"] = ["switched shunt", sub_data["shunt_bus"], pop!(shunt, "SWREM")]
+                sub_data["index"] = length(pm_data["shunt"]) + 1
+
+                push!(pm_data["shunt"], sub_data)
+            end
+
         end
     end
 end
@@ -675,8 +717,8 @@ function _pti_to_powermodels!(pti_data::Dict; import_all=false, validate=true)::
 
     _psse2pm_bus!(pm_data, pti_data, import_all)
     _psse2pm_load!(pm_data, pti_data, import_all)
-    _psse2pm_shunt!(pm_data, pti_data, import_all)
     _psse2pm_generator!(pm_data, pti_data, import_all)
+    _psse2pm_shunt!(pm_data, pti_data, import_all)
     _psse2pm_branch!(pm_data, pti_data, import_all)
     _psse2pm_transformer!(pm_data, pti_data, import_all)
     _psse2pm_dcline!(pm_data, pti_data, import_all)
